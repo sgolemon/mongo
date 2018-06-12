@@ -52,7 +52,7 @@ class IDLAST(object):
         self.commands = []  # type: List[Command]
         self.enums = []  # type: List[Enum]
         self.structs = []  # type: List[Struct]
-
+        self.setParameters = [] # type: List[SetParameter]
 
 class Global(common.SourceLocation):
     """
@@ -190,3 +190,46 @@ class Enum(common.SourceLocation):
         self.values = []  # type: List[EnumValue]
 
         super(Enum, self).__init__(file_name, line, column)
+
+class Validator(common.SourceLocation):
+    """
+    Configuration Validators.
+    """
+
+    def __init__(self, file_name, line, column):
+        self.gt = None  # type: Union[int, float]
+        self.lt = None  # type: Union[int, float]
+        self.gte = None  # type: Union[int, float]
+        self.lte = None  # type: Union[int, float]
+        self.enum = None  # type: List(unicode)
+        self.callback = None  # type: unicode
+
+        super(Validator, self).__init__(file_name, line, column)
+
+class SetParameter(common.SourceLocation):
+    """
+    IDL SetParameter setting.
+    """
+
+    def __init__(self, file_name, line, column):
+        # type: (unicode, int, int) -> None
+        """Construct a SetParameter."""
+        self.name = None  # type: unicode
+        self.description = None  # type: unicode
+        self.setAt = None  # type: unicode
+        self.deprecatedName = []  # type: List[unicode]
+
+        self.cppStorage = None  # type: unicode
+
+        # Only valid is cppStorage is specified.
+        self.default = None  # type: unicode
+        self.validator = None  # type: List[Validator]
+        self.onUpdate = None  # type: unicode
+
+        # Required if cppStorage is NOT specified.
+        self.fromBSON = None  # type: unicode
+        self.appendBSON = None  # type: unicode
+        self.fromString = None  # type: unicode
+
+        super(SetParameter, self).__init__(file_name, line, column)
+

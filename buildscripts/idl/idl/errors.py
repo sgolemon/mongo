@@ -85,7 +85,9 @@ ERROR_ID_IS_NODE_VALID_INT = "ID0049"
 ERROR_ID_IS_NODE_VALID_NON_NEGATIVE_INT = "ID0050"
 ERROR_ID_IS_DUPLICATE_COMPARISON_ORDER = "ID0051"
 ERROR_ID_IS_COMMAND_TYPE_EXTRANEOUS = "ID0052"
-
+ERROR_ID_IS_BAD_SETAT_SPECIFIER = "ID0053"
+ERROR_ID_MISSING_CPPTYPE_SPECIFIER = "ID0054"
+ERROR_ID_MISSING_SERVER_PARAM_METHODS = "ID0055"
 
 class IDLError(Exception):
     """Base class for all IDL exceptions."""
@@ -247,6 +249,11 @@ class ParserContext(object):
         # type: (Union[yaml.nodes.MappingNode, yaml.nodes.ScalarNode, yaml.nodes.SequenceNode], unicode) -> bool
         """Return True if this YAML node is a Map."""
         return self._is_node_type(node, node_name, "mapping")
+
+    def is_sequence_node(self, node, node_name):
+        # type: (Union[yaml.nodes.MappingNode, yaml.nodes.ScalarNode, yaml.nodes.SequenceNode], unicode) -> bool
+        """Return True if this YAML node is a Sequence."""
+        return self._is_node_type(node, node_name, "sequence")
 
     def is_scalar_node(self, node, node_name):
         # type: (Union[yaml.nodes.MappingNode, yaml.nodes.ScalarNode, yaml.nodes.SequenceNode], unicode) -> bool
@@ -647,6 +654,36 @@ class ParserContext(object):
 
         return int(node.value)
 
+    def is_scalar_numeric(self, node, node_name):
+        # type: (Union[yaml.nodes.MappingNode, yaml.nodes.ScalarNode, yaml.nodes.SequenceNode], unicode) -> bool
+        """Return True if this YAML node is a Scalar and a valid int or float."""
+        if not self._is_node_type(node, node_name, "scalar"):
+            return False
+
+        try:
+            value = int(node.value)
+            return True
+        except ValueError:
+            pass
+
+        try:
+            value = float(node.value)
+            return True
+        except ValueError as value_error:
+            self._add_node_error(node, ERROR_ID_IS_NODE_VALID_NUMERIC,
+                                 "Illegal numeric value for '%s', message '%s'." % (node_name, value_error))
+            return False
+
+    def get_numeric_scalar(self, node):
+        # type: (Union[yaml.nodes.MappingNode, yaml.nodes.ScalarNode, yaml.nodes.SequenceNode]) -> float
+        """Convert a scalar to a numeric type."""
+        assert self.is_scalar_numeric(node, "unknown")
+
+        try:
+            return int(node.value)
+        except ValueError:
+            return float(node.value)
+
     def add_duplicate_comparison_order_field_error(self, location, struct_name, comparison_order):
         # type: (common.SourceLocation, unicode, int) -> None
         """Add an error about fields having duplicate comparison_orders."""
@@ -665,6 +702,30 @@ class ParserContext(object):
             ("Command '%s' cannot have a 'type' property unless namespace equals 'type'.") %
             (command_name))
 
+    def add_bad_setat_specifier(self, location, value):
+        # type: (common.SourceLocation, unicode) -> None
+        """Add an error about invalid setParameter.setAt value."""
+        # pylint: disable=invalid-name
+        self._add_error(
+            location, ERROR_ID_IS_BAD_SETAT_SPECIFIER,
+            ("setParameter.setAt values must be 0 or many of 'startup' and/or 'runtime', got '%s'.") %
+            (value))
+
+    def add_missing_cppType_specifier(self, location):
+        # type: (common.SourceLocation) -> None
+        """Add an error about missing both cppType and cppStorage values."""
+        # pylint: disable=invalid-name
+        self._add_error(
+            location, ERROR_ID_MISSING_CPPTYPE_SPECIFIER,
+            "setParameter must contain cppType and/or cppStorage fields.")
+
+    def add_missing_server_parameter_methods(self, location):
+        # type: (common.SourceLocation) -> None
+        """Add an error about missing appendBSON/fromBSON/fromString methods."""
+        # pylint: disable=invalid-name
+        self._add_error(
+            location, ERROR_ID_MISSING_SERVER_PARAM_METHODS,
+            "serParameter must contain appendBSON/fromBSON/fromString methods when cppStorage is not present.")
 
 def _assert_unique_error_messages():
     # type: () -> None

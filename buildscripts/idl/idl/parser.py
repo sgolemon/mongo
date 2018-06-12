@@ -39,6 +39,7 @@ class _RuleDesc(object):
     node_type is either (scalar, bool_scalar, int_scalar, scalar_or_sequence, sequence, or mapping)
     - bool_scalar - means a scalar node which is a valid bool, populates a bool
     - int_scalar - means a scalar node which is a valid non-negative int, populates a int
+    - numeric_scalar - means a scalar node which is a valid integer or float, coerces strings
     - scalar_or_sequence - means a scalar or sequence node, populates a list
     - sequence - a sequence node, populates a list
     - mapping - a mapping node, calls another parser
@@ -89,6 +90,9 @@ def _generic_parser(
             elif rule_desc.node_type == "int_scalar":
                 if ctxt.is_scalar_non_negative_int_node(second_node, first_name):
                     syntax_node.__dict__[first_name] = ctxt.get_non_negative_int(second_node)
+            elif rule_desc.node_type == "numeric_scalar":
+                if ctxt.is_scalar_numeric(second_node, first_name):
+                    syntax_node.__dict__[first_name] = ctxt.get_numeric_scalar(second_node)
             elif rule_desc.node_type == "scalar_or_sequence":
                 if ctxt.is_scalar_sequence_or_scalar_node(second_node, first_name):
                     syntax_node.__dict__[first_name] = ctxt.get_list(second_node)
@@ -140,6 +144,20 @@ def _parse_mapping(
 
         func(ctxt, spec, first_name, second_node)
 
+
+def _parse_sequence(
+        ctxt,  # type: errors.ParserContext
+        spec,  # type: syntax.IDLSpec
+        node,  # type: Union[yaml.nodes.MappingNode, yaml.nodes.ScalarNode, yaml.nodes.SequenceNode]
+        syntax_node_name,  # type: unicode
+        func  # type: Callable[[errors.ParserContext,syntax.IDLSpec,Union[yaml.nodes.MappingNode, yaml.nodes.ScalarNode, yaml.nodes.SequenceNode]], None]
+):  # type: (...) -> None
+    """Parse a top-level sequence section in the IDL file."""
+    if not ctxt.is_sequence_node(node, syntax_node_name):
+        return
+
+    for item_node in node.value:
+        func(ctxt, spec, item_node)
 
 def _parse_global(ctxt, spec, node):
     # type: (errors.ParserContext, syntax.IDLSpec, Union[yaml.nodes.MappingNode, yaml.nodes.ScalarNode, yaml.nodes.SequenceNode]) -> None
@@ -456,6 +474,48 @@ def _parse_command(ctxt, spec, name, node):
 
     spec.symbols.add_command(ctxt, command)
 
+def _parse_Validator(ctxt, node):
+    # type: (errors.ParserContext, str, yaml.nodes.MappingNode) -> syntax.Validator
+    """Parse a validator section in a setParameter struct in the IDL file."""
+    validator = syntax.Validator(ctxt.file_name, node.start_mark.line, node.start_mark.column)
+
+    _generic_parser(
+        ctxt, node, "validator", validator, {
+            "gt": _RuleDesc('numeric_scalar'),
+            "lt": _RuleDesc('numeric_scalar'),
+            "gte": _RuleDesc('numeric_scalar'),
+            "lte": _RuleDesc('numeric_scalar'),
+            "enum": _RuleDesc('sequence'),
+            "callback": _RuleDesc('scalar'),
+        })
+
+    return validator
+
+def _parse_setParameter(ctxt, spec, name, node):
+    # type: (errors.ParserContext, syntax.IDLSpec, unicode, Union[yaml.nodes.MappingNode, yaml.nodes.ScalarNode, yaml.nodes.SequenceNode]) -> None
+    """Parse a configs section in the IDL file."""
+    if not ctxt.is_mapping_node(node, "setParameters"):
+        return
+
+    param = syntax.SetParameter(ctxt.file_name, node.start_mark.line, node.start_mark.column)
+    param.name = name
+
+    _generic_parser(
+        ctxt, node, "setParameters", param, {
+            "description": _RuleDesc('scalar'),
+            "cppStorage": _RuleDesc('scalar'),
+            "default": _RuleDesc('scalar'),
+            "setAt": _RuleDesc('scalar_or_sequence', _RuleDesc.REQUIRED),
+            "deprecatedName": _RuleDesc('scalar_or_sequence'),
+            "fromBSON": _RuleDesc('scalar'),
+            "appendBSON": _RuleDesc('scalar'),
+            "fromString": _RuleDesc('scalar'),
+            "validator": _RuleDesc('mapping', mapping_parser_func=_parse_Validator),
+            "onUpdate": _RuleDesc("scalar"),
+        })
+
+    spec.setParameters.append(param)
+
 
 def _prefix_with_namespace(cpp_namespace, cpp_name):
     # type: (unicode, unicode) -> unicode
@@ -535,6 +595,8 @@ def _parse(stream, error_file_name):
             _parse_mapping(ctxt, spec, second_node, 'structs', _parse_struct)
         elif first_name == "commands":
             _parse_mapping(ctxt, spec, second_node, 'commands', _parse_command)
+        elif first_name == "setParameters":
+            _parse_mapping(ctxt, spec, second_node, 'setParameters', _parse_setParameter)
         else:
             ctxt.add_unknown_root_node_error(first_node)
 

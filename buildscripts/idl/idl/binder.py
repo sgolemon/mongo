@@ -772,6 +772,67 @@ def _bind_enum(ctxt, idl_enum):
 
     return ast_enum
 
+def _bind_setParameter(ctxt, parsed_spec, param):
+    # type: (errors.ParserContext, syntax.IDLSpec, syntax.SetParameter) -> ast.SetParameter
+    """
+    Bind a setParameter setting.
+    """
+
+    astParam = ast.SetParameter(param.file_name, param.line, param.column)
+    astParam.name = param.name
+    astParam.description = param.description
+    astParam.deprecatedName = param.deprecatedName
+
+    astParam.cppStorage = param.cppStorage
+
+    if param.cppStorage is None:
+        if (param.fromString is None) or (param.fromBSON is None) or (param.appendBSON is None): 
+            ctxt.add_missing_server_parameter_methods(param)
+        if param.default is not None:
+            ctxt.add_field_without_cppStorage(param, param.default)
+        if param.onUpdate is not None:
+            ctxt.add_field_without_cppStorage(param, param.onUpdate)
+        if param.validator is not None:
+            ctxt.add_field_without_cppStorage(param, param.validator)
+
+    astParam.fromString = param.fromString
+    astParam.appendBSON = param.appendBSON
+    astParam.fromBSON = param.fromBSON
+
+    astParam.default = param.default
+    astParam.onUpdate = param.onUpdate
+
+    setAt = 0
+    for psa in param.setAt:
+        if psa.lower() == 'startup':
+            setAt |= 1
+        elif psa.lower() == 'runtime':
+            setAt |= 2
+        else:
+            ctxt.add_bad_setat_specifier(param, param.setAt)
+
+        if setAt == 1:
+            astParam.setAt = "kStartupOnly"
+        elif setAt == 2:
+            astParam.setAt = "kRuntimeOnly"
+        elif setAt == 3:
+            astParam.setAt = "kStartupAndRuntime"
+        else:
+            # Can't happen based on above logic.
+            ctxt.add_bad_setat_specifier(param, param.setAt)
+
+
+    if param.validator is not None:
+        astParam.validator = ast.Validator(param.validator.file_name, param.validator.line, param.validator.column)
+        astParam.validator.gt = param.validator.gt
+        astParam.validator.lt = param.validator.lt
+        astParam.validator.gte = param.validator.gte
+        astParam.validator.lte = param.validator.lte
+        astParam.validator.enum = param.validator.enum
+        astParam.validator.callback = param.validator.callback
+
+    return astParam
+
 
 def bind(parsed_spec):
     # type: (syntax.IDLSpec) -> ast.IDLBoundSpec
@@ -797,6 +858,9 @@ def bind(parsed_spec):
     for struct in parsed_spec.symbols.structs:
         if not struct.imported:
             bound_spec.structs.append(_bind_struct(ctxt, parsed_spec, struct))
+
+    for setParameter in parsed_spec.setParameters:
+        bound_spec.setParameters.append(_bind_setParameter(ctxt, parsed_spec, setParameter))
 
     if ctxt.errors.has_errors():
         return ast.IDLBoundSpec(None, ctxt.errors)

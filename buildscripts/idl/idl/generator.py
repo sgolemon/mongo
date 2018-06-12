@@ -285,6 +285,13 @@ def _get_field_usage_checker(indented_writer, struct):
 
     return _SlowFieldUsageChecker(indented_writer)
 
+# Add backslahes to select reserved characters in a string to make them C++ safe.
+def _escapeString(s):
+    # type: (unicode) -> unicode
+    for i in ["\\", '"', "'"]:
+        if i in s:
+            s = s.replace(i, '\\'+i)
+    return s
 
 class _CppFileWriterBase(object):
     """
@@ -1491,6 +1498,58 @@ class _CppSourceFileWriter(_CppFileWriterBase):
                 common.template_args('${class_name}::kCommandName,', class_name=common.title_case(
                     struct.cpp_name)))
 
+    def gen_setParameter(self, param_no, param):
+        # type: (List[ast.Config]) -> None
+        """Generate setParameter entries for a Configuration Setting."""
+        self.gen_description_comment(param.description)
+        #for (name_no, name) in enumerate([param.name] + param.deprecatedName):
+        closure = common.template_args(
+            'MONGO_COMPILER_VARIABLE_UNUSED auto* scp_${param_no} = ([] {',
+            param_no=param_no)
+        with self._block(closure, '})();'):
+            if param.cppStorage is not None:
+                self._writer.write_line(common.template_args(
+                    'auto* ret = new IDLServerParameterWithStorage<decltype(${storage}), ${spt}>("${name}", ${storage});',
+                    storage=param.cppStorage,
+                    spt=('ServerParameterType::' + param.setAt),
+                    name=_escapeString(param.name)))
+
+                if param.fromBSON is not None:
+                    self._writer.write_line('ret->setFromBSON(%s);' % (param.fromBSON))
+                if param.appendBSON is not None:
+                    self._writer.write_line('ret->setAppendBSON(%s);' % (param.appendBSON))
+                if param.fromString is not None:
+                    self._writer.write_line('ret->setFromString(%s);' % (param.fromString))
+                if param.onUpdate is not None:
+                    self._writer.write_line('ret->setOnUpdate(%s);' % (param.onUpdate))
+                if param.validator is not None:
+                    if param.validator.callback is not None:
+                        self._writer.write_line('ret->addValidator(%s);' % (param.validator.callback))
+                    if param.validator.enum is not None:
+                        self._writer.write_line('ret->setEnumValues({%s});' % (','.join([('"'+_escapeString(x)+'"') for x in param.validator.enum])))
+                    for pred in ['lt', 'gt', 'lte', 'gte']:
+                        bound = getattr(param.validator, pred)
+                        if bound is not None:
+                            self._writer.write_line('ret->addBound<predicate::%s>(%s);' % (pred.upper(), bound))
+
+                # Keep the setFromString() element last so that validators are run.
+                if param.default is not None:
+                    self._writer.write_line('uassertStatusOK(ret->setFromString("%s"));' % (_escapeString(param.default)))
+            else:
+                # Fully custom setParameter, hooks methods only.
+                self._writer.write_line(common.template_args(
+                    'auto* ret = new IDLServerParameter<${spt}>("${name}");',
+                    spt=('ServerParameterType::' + param.setAt),
+                    name=_escapeString(param.name)))
+                self._writer.write_line('ret->setFromBSON(%s);' % (param.fromBSON))
+                self._writer.write_line('ret->setAppendBSON(%s);' % (param.appendBSON))
+                self._writer.write_line('ret->setFromString(%s);' % (param.fromString))
+
+            for alias in param.deprecatedName:
+                self._writer.write_line('new ServerParameterAlias("%s", ret, true);' % (_escapeString(alias)))
+
+            self._writer.write_line('return ret;')
+
     def generate(self, spec, header_file_name):
         # type: (ast.IDLAST, unicode) -> None
         """Generate the C++ header to a stream."""
@@ -1521,6 +1580,11 @@ class _CppSourceFileWriter(_CppFileWriterBase):
             'mongo/db/command_generic_argument.h',
             'mongo/db/commands.h',
         ]
+
+        if len(spec.setParameters) > 0:
+            header_list.append('mongo/util/predicates.h')
+            header_list.append('mongo/db/server_parameters.h')
+
         header_list.sort()
 
         for include in header_list:
@@ -1567,6 +1631,10 @@ class _CppSourceFileWriter(_CppFileWriterBase):
                 self.gen_to_bson_serializer_method(struct)
                 self.write_empty_line()
 
+            if (len(spec.setParameters) > 0):
+                with self.gen_namespace_block(''):
+                    for (param_no, param) in enumerate(spec.setParameters):
+                        self.gen_setParameter(param_no, param)
 
 def generate_header_str(spec):
     # type: (ast.IDLAST) -> unicode

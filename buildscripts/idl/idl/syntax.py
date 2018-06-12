@@ -54,7 +54,7 @@ class IDLSpec(object):
         self.symbols = SymbolTable()  # type: SymbolTable
         self.globals = None  # type: Optional[Global]
         self.imports = None  # type: Optional[Import]
-
+        self.setParameters = []  # type: List[SetParameter]
 
 def parse_array_type(name):
     # type: (unicode) -> unicode
@@ -89,7 +89,7 @@ class SymbolTable(object):
     """
     IDL Symbol Table.
 
-    - Contains all information to resolve commands, enums, structs, and types.
+    - Contains all information to resolve commands, enums, structs, types, and setParameters.
     - Checks for duplicate names across the union of (commands, enums, types, structs)
     """
 
@@ -416,3 +416,47 @@ class Enum(common.SourceLocation):
         self.cpp_namespace = None  # type: unicode
 
         super(Enum, self).__init__(file_name, line, column)
+
+class Validator(common.SourceLocation):
+    """
+    IDL Config Validator information.
+    """
+
+    def __init__(self, file_name, line, column):
+        # type: (unicode, int, int) -> None
+        """Construct a set of Validators."""
+        self.gt = None  # type: Union[int, float]
+        self.lt = None  # type: Union[int, float]
+        self.gte = None  # type: Union[int, float]
+        self.lte = None  # type: Union[int, float]
+        self.enum = None  # type: List(unicode)
+        self.callback = None  # type: unicode
+
+        super(Validator, self).__init__(file_name, line, column)
+
+class SetParameter(common.SourceLocation):
+    """
+    IDL SetParameter information.
+    """
+
+    def __init__(self, file_name, line, column):
+        # type: (unicode, int, int) -> None
+        """Construct a SetParameter."""
+        self.name = None  # type: unicode
+        self.description = None  # type: unicode
+        self.setAt = None  # type: unicode
+        self.deprecatedName = []  # type: List[unicode]
+
+        self.cppStorage = None  # type: unicode
+
+        # Only valid if cppStorage is specified.
+        self.validator = None  # type: ConfigValidator
+        self.onUpdate = None  # type: unicode
+        self.default = None  # type: unicode
+
+        # Required if cppStorage is not specified.
+        self.fromBSON = None  # type: unicode
+        self.appendBSON = None  # type: unicode
+        self.fromString = None  # type: unicode
+
+        super(SetParameter, self).__init__(file_name, line, column)
