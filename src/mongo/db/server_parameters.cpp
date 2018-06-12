@@ -83,4 +83,20 @@ void ServerParameterSet::add(ServerParameter* sp) {
     x = sp;
 }
 
+Status ServerParameterAlias::set(const BSONElement& newValueElement) {
+    if (_deprecated) {
+        log() << "Setting deprecated Server Parameter '" << name() << "', please use '"
+              << _primary->name() << "' instead.";
+    }
+    return _primary->set(newValueElement);
+}
+
+Status ServerParameterAlias::setFromString(const std::string& str) {
+    if (_deprecated) {
+        log() << "Setting deprecated Server Parameter '" << name() << "', please use '"
+              << _primary->name() << "' instead.";
+    }
+    return _primary->setFromString(str);
+}
+
 }  // namespace mongo

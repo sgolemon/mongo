@@ -30,7 +30,9 @@
 
 #pragma once
 
+#include <boost/thread/synchronized_value.hpp>
 #include <map>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -48,6 +50,69 @@ namespace mongo {
 
 class ServerParameterSet;
 class OperationContext;
+
+namespace server_parameter_detail {
+template <typename T>
+inline StatusWith<T> coerceFromString(const std::string& str) {
+    T value;
+    Status status = parseNumberFromString(str, &value);
+    if (!status.isOK()) {
+        return status;
+    }
+    return value;
+}
+
+template <>
+inline StatusWith<bool> coerceFromString<bool>(const std::string& str) {
+    if ((str == "1") || (str == "true")) {
+        return true;
+    }
+    if ((str == "0") || (str == "false")) {
+        return false;
+    }
+    return Status(ErrorCodes::BadValue, "Value is not a valid boolean");
+}
+
+template <>
+inline StatusWith<std::string> coerceFromString<std::string>(const std::string& str) {
+    return str;
+}
+
+template <>
+inline StatusWith<std::vector<std::string>> coerceFromString<std::vector<std::string>>(
+    const std::string& str) {
+    std::vector<std::string> v;
+    splitStringDelim(str, &v, ',');
+    return v;
+}
+
+template <typename T>
+inline std::string coerceToString(const T& val) {
+    return str::stream() << val;
+}
+
+template <>
+inline std::string coerceToString<bool>(const bool& val) {
+    return val ? "true" : "false";
+}
+
+template <>
+inline std::string coerceToString<std::string>(const std::string& val) {
+    return val;
+}
+
+template <>
+inline std::string coerceToString<std::vector<std::string>>(const std::vector<std::string>& val) {
+    auto stream = str::stream();
+    const char* delim = "";
+    for (const auto& v : val) {
+        stream << delim << v;
+        delim = ",";
+    }
+    return stream;
+}
+
+}  // namespace server_parameter_detail
 
 /**
  * Lets you make server level settings easily configurable.
@@ -140,6 +205,344 @@ enum class ServerParameterType {
 };
 
 /**
+ * Specialization of ServerParameter used by IDL generator.
+ */
+template <ServerParameterType paramType>
+class IDLServerParameter : public ServerParameter {
+private:
+    using SPT = ServerParameterType;
+
+public:
+    IDLServerParameter(const std::string& name)
+        : ServerParameter(ServerParameterSet::getGlobal(),
+                          name,
+                          paramType == SPT::kStartupOnly || paramType == SPT::kStartupAndRuntime,
+                          paramType == SPT::kRuntimeOnly || paramType == SPT::kStartupAndRuntime) {}
+
+    /**
+     * Define a callback for populating a BSONObj with the current setting.
+     */
+    using appendBSON_t = void(OperationContext*, BSONObjBuilder&, const std::string&);
+    void setAppendBSON(std::function<appendBSON_t> appendBSON) {
+        _appendBSON = std::move(appendBSON);
+    }
+
+    /**
+     * Encode the setting into BSON object.
+     *
+     * Typically invoked by {getParameter:...} to produce a dictionary
+     * of SCP settings.
+     */
+    void append(OperationContext* opCtx, BSONObjBuilder& b, const std::string& name) override {
+        invariant(_appendBSON);
+        _appendBSON(opCtx, b, name);
+    }
+
+    /**
+     * Define a callback for setting the value from a BSONElement.
+     */
+    using fromBSON_t = Status(const BSONElement&);
+    void setFromBSON(std::function<fromBSON_t> fromBSON) {
+        _fromBSON = std::move(fromBSON);
+    }
+
+    /**
+     * Update the underlying value using a BSONElement
+     *
+     * Allows setting non-basic values (e.g. vector<string>)
+     * via the {setParameter: ...} call.
+     */
+    Status set(const BSONElement& newValueElement) override {
+        invariant(_fromBSON);
+        return _fromBSON(newValueElement);
+    }
+
+    /**
+     * Define a callback for setting the value from a string.
+     */
+    using fromString_t = Status(const std::string&);
+    void setFromString(std::function<fromString_t> fromString) {
+        _fromString = std::move(fromString);
+    }
+
+    /**
+     * Update the underlying value from a string.
+     *
+     * Typically invoked from commandline --setParameter usage.
+     */
+    Status setFromString(const std::string& str) override {
+        invariant(_fromString);
+        return _fromString(str);
+    }
+
+protected:
+    std::function<appendBSON_t> _appendBSON;
+    std::function<fromBSON_t> _fromBSON;
+    std::function<fromString_t> _fromString;
+};
+
+template <typename T, ServerParameterType paramType>
+class IDLServerParameterWithStorage : public IDLServerParameter<paramType> {
+private:
+    template <typename U>
+    struct storage_wrapper;
+
+    template <typename U>
+    struct storage_wrapper<std::atomic<U>> {
+        static constexpr bool thread_safe = true;
+        using type = U;
+        static void store(std::atomic<U>& storage, const U& value) {
+            storage.store(value);
+        }
+        static U load(std::atomic<U>& storage) {
+            return storage.load();
+        }
+    };
+
+    template <typename U>
+    struct storage_wrapper<AtomicWord<U>> {
+        static constexpr bool thread_safe = true;
+        using type = U;
+        static void store(AtomicWord<U>& storage, const U& value) {
+            storage.store(value);
+        }
+        static U load(AtomicWord<U>& storage) {
+            return storage.load();
+        }
+    };
+
+    // Covers AtomicDouble
+    template <typename U, typename P>
+    struct storage_wrapper<AtomicProxy<U, P>> {
+        static constexpr bool thread_safe = true;
+        using type = U;
+        static void store(AtomicProxy<U, P>& storage, const U& value) {
+            storage.store(value);
+        }
+        static U load(AtomicProxy<U, P>& storage) {
+            return storage.load();
+        }
+    };
+
+    template <typename U>
+    struct storage_wrapper<boost::synchronized_value<U>> {
+        static constexpr bool thread_safe = true;
+        using type = U;
+        static void store(boost::synchronized_value<U>& storage, const U& value) {
+            *storage = value;
+        }
+        static U load(boost::synchronized_value<U>& storage) {
+            return *storage;
+        }
+    };
+
+    // All other types
+    template <typename U>
+    struct storage_wrapper {
+        static constexpr bool thread_safe = false;
+        using type = U;
+        static void store(U& storage, const U& value) {
+            storage = value;
+        }
+        static U load(U& storage) {
+            return storage;
+        }
+    };
+
+    static constexpr bool thread_safe = storage_wrapper<T>::thread_safe;
+    using element_type = typename storage_wrapper<T>::type;
+    using SPT = ServerParameterType;
+
+public:
+    IDLServerParameterWithStorage(const std::string& name, T& storage)
+        : IDLServerParameter<paramType>(name), _storage(storage) {
+        invariant(thread_safe || paramType == SPT::kStartupOnly,
+                  "Runtime server parameters must be thread safe");
+    }
+
+    /**
+     * Encode the setting into BSON object.
+     *
+     * Typically invoked by {getParameter:...} to produce a dictionary
+     * of SCP settings.
+     */
+    void append(OperationContext* opCtx, BSONObjBuilder& b, const std::string& name) final {
+        if (this->_appendBSON) {
+            this->_appendBSON(opCtx, b, name);
+        } else {
+            b.append(name, getValue());
+        }
+    }
+
+    /**
+     * Update the underlying value using a BSONElement
+     *
+     * Allows setting non-basic values (e.g. vector<string>)
+     * via the {setParameter: ...} call.
+     */
+    Status set(const BSONElement& newValueElement) final {
+        element_type newValue;
+
+        if (this->_fromBSON) {
+            return this->_fromBSON(newValueElement);
+        } else if (newValueElement.coerce(&newValue)) {
+            return setValue(newValue);
+        } else {
+            return Status(ErrorCodes::BadValue, "Can't coerce value");
+        }
+    }
+
+    /**
+     * Update the underlying value from a string.
+     *
+     * Typically invoked from commandline --setParameter usage.
+     */
+    Status setFromString(const std::string& str) final {
+        if (this->_fromString) {
+            return this->_fromString(str);
+        }
+
+        auto swNewValue = server_parameter_detail::coerceFromString<element_type>(str);
+        if (!swNewValue.isOK()) {
+            return swNewValue.getStatus();
+        }
+
+        return setValue(swNewValue.getValue());
+    }
+
+    /**
+     * Set the value by natice type.
+     * Also used for setting initial/default value.
+     */
+    Status setValue(const element_type& newValue) {
+        for (const auto& validator : _validators) {
+            const auto status = validator(newValue);
+            if (!status.isOK()) {
+                return status;
+            }
+        }
+        storage_wrapper<T>::store(_storage, newValue);
+
+        if (_onUpdate) {
+            return _onUpdate(newValue);
+        }
+
+        return Status::OK();
+    }
+
+    element_type getValue() const {
+        return storage_wrapper<T>::load(_storage);
+    }
+
+    /**
+     * Called *after* updating the underlying storage to its new value.
+     */
+    using onUpdate_t = Status(const element_type&);
+    void setOnUpdate(std::function<onUpdate_t> onUpdate) {
+        _onUpdate = std::move(onUpdate);
+    }
+
+    // Validators.
+
+    /**
+     * Add a callback validator to be invoked when this setting is updated.
+     *
+     * Callback should return Status::OK() or ErrorCodes::BadValue.
+     */
+    using validator_t = Status(const element_type&);
+    void addValidator(std::function<validator_t> validator) {
+        _validators.push_back(std::move(validator));
+    }
+
+    /**
+     * Specific (typically numeric) bounds on acceptable values.
+     * Example range of (5,10]:
+     *   scp.addBound<predicate::GT>(5).addBound<predicate::LTE>(10);
+     */
+    template <typename Predicate>
+    void addBound(const element_type& bound) {
+        addValidator([this, bound](const element_type& newValue) -> Status {
+            if (!Predicate::evaluate(newValue, bound)) {
+                return {ErrorCodes::BadValue, str::stream() << newValue};
+            }
+            return Status::OK();
+        });
+    }
+
+    /**
+     * Limit setting to a specific set of possible values.
+     *
+     * Accepts unnormalized string form from IDL generator
+     * and promotes to specific element_type at startup.
+     */
+    template <typename element_type_t = element_type,
+              std::enable_if_t<std::is_same<std::vector<std::string>, element_type_t>::value>>
+    void setEnumValues(const std::set<std::string>& values) {
+        // TODO: Use `if constexpr` instead of this enable_if SFINAE crap.
+        addValidator([&values](const std::vector<std::string>& newValue) -> Status {
+            for (const auto& value : newValue) {
+                if (!values.count(value)) {
+                    return {ErrorCodes::BadValue, str::stream() << newValue};
+                }
+            }
+            return Status::OK();
+        });
+    }
+
+    template <typename element_type_t = element_type,
+              std::enable_if_t<!std::is_same<std::vector<std::string>, element_type_t>::value>>
+    void setEnumValues(const std::set<std::string>& values) {
+        std::set<element_type> coercedValues;
+        if (std::is_same<element_type, std::string>::value) {
+            coercedValues = values;
+        } else {
+            for (const auto& value : values) {
+                auto swValue = server_parameter_detail::coerceFromString<element_type>(value);
+                invariant(swValue.isOK());
+                coercedValues.emplace(swValue.getValue());
+            }
+        }
+
+        addValidator([&coercedValues](const element_type& newValue) -> Status {
+            if (coercedValues.count(newValue)) {
+                return Status::OK();
+            }
+            return {ErrorCodes::BadValue, str::stream() << newValue};
+        });
+    }
+
+private:
+    T& _storage;
+
+    std::vector<std::function<validator_t>> _validators;
+    std::function<onUpdate_t> _onUpdate;
+};
+
+class ServerParameterAlias : ServerParameter {
+public:
+    ServerParameterAlias(StringData name, ServerParameter* primary, bool deprecated = false)
+        : ServerParameter(ServerParameterSet::getGlobal(),
+                          primary->name(),
+                          primary->allowedToChangeAtStartup(),
+                          primary->allowedToChangeAtRuntime()),
+          _primary(primary),
+          _deprecated(deprecated) {
+        invariant(_primary);
+    }
+
+    void append(OperationContext* opCtx, BSONObjBuilder& b, const std::string& name) final {
+        _primary->append(opCtx, b, name);
+    }
+
+    Status set(const BSONElement& newValueElement) final;
+    Status setFromString(const std::string& str) final;
+
+private:
+    ServerParameter* _primary;
+    bool _deprecated;
+};
+
+/**
  * Lets you make server level settings easily configurable.
  * Hooks into (set|get)Parameter, as well as command line processing
  */
@@ -184,46 +587,18 @@ public:
         return _setter(newValue);
     }
 
-    Status setFromString(const std::string& str) override;
+    Status setFromString(const std::string& str) override {
+        auto swVal = server_parameter_detail::coerceFromString<T>(str);
+        if (!swVal.isOK()) {
+            return swVal.getStatus();
+        }
+        return _setter(swVal.getValue());
+    }
 
 private:
     const setter _setter;
     const getter _getter;
 };
-
-template <>
-inline Status BoundServerParameter<bool>::setFromString(const std::string& str) {
-    if ((str == "1") || (str == "true")) {
-        return _setter(true);
-    }
-    if ((str == "0") || (str == "false")) {
-        return _setter(false);
-    }
-    return Status(ErrorCodes::BadValue, "Value is not a valid boolean");
-}
-
-template <>
-inline Status BoundServerParameter<std::string>::setFromString(const std::string& str) {
-    return _setter(str);
-}
-
-template <>
-inline Status BoundServerParameter<std::vector<std::string>>::setFromString(
-    const std::string& str) {
-    std::vector<std::string> v;
-    splitStringDelim(str, &v, ',');
-    return _setter(v);
-}
-
-template <typename T>
-inline Status BoundServerParameter<T>::setFromString(const std::string& str) {
-    T value;
-    Status status = parseNumberFromString(str, &value);
-    if (!status.isOK()) {
-        return status;
-    }
-    return _setter(value);
-}
 
 template <typename T>
 class LockedServerParameter : public BoundServerParameter<T> {
