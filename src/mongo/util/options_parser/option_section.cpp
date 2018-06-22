@@ -57,6 +57,16 @@ Status OptionSection::addSection(const OptionSection& subSection) {
     return Status::OK();
 }
 
+OptionSection* OptionSection::getSection(const std::string& name) {
+    for (auto& section : _subSections) {
+        if (section._name == name) {
+            return &section;
+        }
+    }
+    _subSections.emplace_back(name);
+    return getSection(name);
+}
+
 OptionDescription& OptionSection::addOptionChaining(const std::string& dottedName,
                                                     const std::string& singleName,
                                                     const OptionType type,

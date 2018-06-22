@@ -88,6 +88,11 @@ public:
     Status addSection(const OptionSection& subSection);
 
     /**
+     * Retreive a reference to a previously added section, or create a new named section.
+     */
+    OptionSection* getSection(const std::string& name);
+
+    /**
      * Add an option to this section, and returns a reference to an OptionDescription to allow
      * for chaining.
      *
