@@ -1,0 +1,50 @@
+# Copyright (C) 2018 MongoDB Inc.
+#
+# This program is free software: you can redistribute it and/or  modify
+# it under the terms of the GNU Affero General Public License, version 3,
+# as published by the Free Software Foundation.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+#
+
+global:
+  cpp_namespace: "mongo"
+  cpp_includes:
+    - "mongo/db/commands/parameters.h"
+
+imports:
+    - "mongo/idl/basic_types.idl"
+
+setParameters:
+  logLevel:
+    setAt: [ startup, runtime ]
+    appendBSON: "logLevelAppendBSON"
+    fromBSON: "logLevelFromBSON"
+    fromString: "logLevelFromString"
+
+  logComponentVerbosity:
+    description: "Log levels of log component hierarchy. Negative value for a log component means the default log level will be used."
+    setAt: [ startup, runtime ]
+    appendBSON: "logComponentVerbositySettingAppendBSON"
+    fromBSON: "logComponentVerbositySettingFromBSON"
+    fromString: "logComponentVerbositySettingFromString"
+
+  quiet:
+    cppStorage: "serverGlobalParams.quiet"
+    setAt: [ startup, runtime ]
+
+  traceExceptions:
+    cppStorage: "DBException::traceExceptions"
+    setAt: runtime
+
+  automationServiceDescriptor:
+    cppStorage: "automationServiceDescriptor"
+    setAt: [ startup, runtime ]
+    validator:
+      callback: "validateAutomationServiceDescriptor"

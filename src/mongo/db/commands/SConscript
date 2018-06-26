@@ -98,6 +98,7 @@ env.Library(
         "hashcmd.cpp",
         "parameters.cpp",
         "rename_collection_common.cpp",
+        env.Idlc('parameters.idl')[0],
     ],
     LIBDEPS_PRIVATE=[
         '$BUILD_DIR/mongo/bson/mutable/mutable_bson',
