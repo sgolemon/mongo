@@ -56,6 +56,11 @@ namespace mongo {
  * @return the SSL version std::string prefixed with prefix and suffixed with suffix
  */
 const std::string getSSLVersion(const std::string& prefix, const std::string& suffix);
+
+/**
+ * Validate --setParameter opensslCipherSuite=xxx
+ */
+Status validateOpenSSLCipherSuite(const std::string&);
 }
 
 #ifdef MONGO_CONFIG_SSL

@@ -50,53 +50,21 @@
 
 namespace mongo {
 
-namespace {
-
-/**
- * Configurable via --setParameter disableNonSSLConnectionLogging=true. If false (default)
- * if the sslMode is set to preferSSL, we will log connections that are not using SSL.
- * If true, such log messages will be suppressed.
- */
-ExportedServerParameter<bool, ServerParameterType::kStartupOnly>
-    disableNonSSLConnectionLoggingParameter(ServerParameterSet::getGlobal(),
-                                            "disableNonSSLConnectionLogging",
-                                            &sslGlobalParams.disableNonSSLConnectionLogging);
-
-ExportedServerParameter<std::string, ServerParameterType::kStartupOnly>
-    setDiffieHellmanParameterPEMFile(ServerParameterSet::getGlobal(),
-                                     "opensslDiffieHellmanParameters",
-                                     &sslGlobalParams.sslPEMTempDHParam);
-
-ExportedServerParameter<bool, ServerParameterType::kStartupOnly>
-    suppressNoTLSPeerCertificateWarning(ServerParameterSet::getGlobal(),
-                                        "suppressNoTLSPeerCertificateWarning",
-                                        &sslGlobalParams.suppressNoTLSPeerCertificateWarning);
-}  // namespace
-
-class OpenSSLCipherConfigParameter
-    : public ExportedServerParameter<std::string, ServerParameterType::kStartupOnly> {
-public:
-    OpenSSLCipherConfigParameter()
-        : ExportedServerParameter<std::string, ServerParameterType::kStartupOnly>(
-              ServerParameterSet::getGlobal(),
-              "opensslCipherConfig",
-              &sslGlobalParams.sslCipherConfig) {}
-    Status validate(const std::string& potentialNewValue) final {
-        if (!sslGlobalParams.sslCipherConfig.empty()) {
-            return Status(
-                ErrorCodes::BadValue,
-                "opensslCipherConfig setParameter is incompatible with net.ssl.sslCipherConfig");
-        }
-        // Note that there is very little validation that we can do here.
-        // OpenSSL exposes no API to validate a cipher config string. The only way to figure out
-        // what a string maps to is to make an SSL_CTX object, set the string on it, then parse the
-        // resulting STACK_OF object. If provided an invalid entry in the string, it will silently
-        // ignore it. Because an entry in the string may map to multiple ciphers, or remove ciphers
-        // from the final set produced by the full string, we can't tell if any entry failed
-        // to parse.
-        return Status::OK();
+Status validateOpenSSLCipherSuite(const std::string& potentialNewValue) {
+    if (!sslGlobalParams.sslCipherConfig.empty()) {
+        return Status(
+            ErrorCodes::BadValue,
+            "opensslCipherConfig setParameter is incompatible with net.ssl.sslCipherConfig");
     }
-} openSSLCipherConfig;
+    // Note that there is very little validation that we can do here.
+    // OpenSSL exposes no API to validate a cipher config string. The only way to figure out
+    // what a string maps to is to make an SSL_CTX object, set the string on it, then parse the
+    // resulting STACK_OF object. If provided an invalid entry in the string, it will silently
+    // ignore it. Because an entry in the string may map to multiple ciphers, or remove ciphers
+    // from the final set produced by the full string, we can't tell if any entry failed
+    // to parse.
+    return Status::OK();
+}
 
 #ifdef MONGO_CONFIG_SSL
 

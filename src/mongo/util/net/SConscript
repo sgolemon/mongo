@@ -78,6 +78,7 @@ env.Library(
         "ssl_parameters.cpp",
         "ssl_manager_%s.cpp" % (ssl_provider) if not ssl_provider == "none" else [],
         "ssl_stream.cpp",
+        env.Idlc('ssl_manager.idl')[0],
     ],
     LIBDEPS=[
         '$BUILD_DIR/mongo/base',
