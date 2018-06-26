@@ -1500,6 +1500,7 @@ env.Library(
     target='snapshot_window_options',
     source=[
         'snapshot_window_options.cpp',
+        env.Idlc('snapshot_window_options.idl')[0],
     ],
     LIBDEPS_PRIVATE=[
         '$BUILD_DIR/mongo/db/server_parameters',

@@ -1,0 +1,69 @@
+# Copyright (C) 2018 MongoDB Inc.
+#
+# This program is free software: you can redistribute it and/or  modify
+# it under the terms of the GNU Affero General Public License, version 3,
+# as published by the Free Software Foundation.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+#
+
+global:
+  cpp_namespace: "mongo"
+  cpp_includes:
+    - "mongo/db/snapshot_window_options.h"
+
+imports:
+    - "mongo/idl/basic_types.idl"
+
+setParameters:
+  # Provides validation for snapshot window server parameter settings.
+
+  maxTargetSnapshotHistoryWindowInSeconds:
+    cppStorage: "snapshotWindowParams.maxTargetSnapshotHistoryWindowInSeconds"
+    setAt: [ startup, runtime ]
+    validator:
+      gte: 0
+
+  cachePressureThreshold:
+    cppStorage: "snapshotWindowParams.cachePressureThreshold"
+    setAt: [ startup, runtime ]
+    validator:
+      gte: 0
+      lte: 100
+
+  snapshotWindowMultiplicativeDecrease:
+    cppStorage: "snapshotWindowParams.snapshotWindowMultiplicativeDecrease"
+    setAt: [ startup, runtime ]
+    validator:
+      gt: 0.0
+      lt: 1.0
+
+  snapshotWindowAdditiveIncreaseSeconds:
+    cppStorage: "snapshotWindowParams.snapshotWindowAdditiveIncreaseSeconds"
+    setAt: [ startup, runtime ]
+    validator:
+      gte: 1
+
+  minMillisBetweenSnapshotWindowInc:
+    cppStorage: "snapshotWindowParams.minMillisBetweenSnapshotWindowInc"
+    setAt: [ startup, runtime ]
+    validator:
+      gte: 1
+
+  minMillisBetweenSnapshotWindowDec:
+    cppStorage: "snapshotWindowParams.minMillisBetweenSnapshotWindowDec"
+    setAt: [ startup, runtime ]
+    validator:
+      gte: 1
+
+  checkCachePressurePeriodSeconds:
+    cppStorage: "snapshotWindowParams.checkCachePressurePeriodSeconds"
+    setAt: [ startup, runtime ]
+    validator:
+      gte: 1
