@@ -67,45 +67,6 @@ SASLGlobalParams::SASLGlobalParams() {
     authFailedDelay.store(0);
 }
 
-Status addSASLOptions(moe::OptionSection* options) {
-    moe::OptionSection saslOptions("SASL Options");
-
-    saslOptions
-        .addOptionChaining("security.authenticationMechanisms",
-                           "",
-                           moe::StringVector,
-                           "List of supported authentication mechanisms.  "
-                           "Default is SCRAM-SHA-1 and MONGODB-X509.")
-        .setSources(moe::SourceYAMLConfig);
-
-    saslOptions
-        .addOptionChaining(
-            "security.sasl.hostName", "", moe::String, "Fully qualified server domain name")
-        .setSources(moe::SourceYAMLConfig);
-
-    saslOptions
-        .addOptionChaining("security.sasl.serviceName",
-                           "",
-                           moe::String,
-                           "Registered name of the service using SASL")
-        .setSources(moe::SourceYAMLConfig);
-
-    saslOptions
-        .addOptionChaining("security.sasl.saslauthdSocketPath",
-                           "",
-                           moe::String,
-                           "Path to Unix domain socket file for saslauthd")
-        .setSources(moe::SourceYAMLConfig);
-
-    Status ret = options->addSection(saslOptions);
-    if (!ret.isOK()) {
-        log() << "Failed to add sasl option section: " << ret.toString();
-        return ret;
-    }
-
-    return Status::OK();
-}
-
 Status storeSASLOptions(const moe::Environment& params) {
     bool haveAuthenticationMechanisms = false;
     bool haveHostName = false;
@@ -179,10 +140,6 @@ Status storeSASLOptions(const moe::Environment& params) {
         saslGlobalParams.serviceName = "mongodb";
 
     return Status::OK();
-}
-
-MONGO_MODULE_STARTUP_OPTIONS_REGISTER(SASLOptions)(InitializerContext* context) {
-    return addSASLOptions(&moe::startupOptions);
 }
 
 MONGO_STARTUP_OPTIONS_STORE(SASLOptions)(InitializerContext* context) {

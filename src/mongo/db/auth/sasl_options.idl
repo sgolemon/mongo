@@ -54,3 +54,25 @@ setParameters:
     validator:
       gte: 5000
 
+configs:
+  "security.authenticationMechanisms":
+    section: "SASL Options"
+    description: "List of supported authentication mechanisms. Default is SCRAM-SHA-1 and MONGODB-X509."
+    type: StringVector
+    source: yaml
+  "security.sasl.hostName":
+    section: "SASL Options"
+    description: "Fully qualified server domain name"
+    type: String
+    source: yaml
+  "security.sasl.serviceName":
+    section: "SASL Options"
+    description: "Registered name of the service using SASL"
+    type: String
+    source: yaml
+  "security.sasl.saslauthdSocketPath":
+    section: "SASL Options"
+    description: "Path to Unix domain socket file for saslauthd"
+    type: String
+    source: yaml
+
