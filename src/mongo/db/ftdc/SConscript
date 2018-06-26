@@ -47,6 +47,7 @@ env.Library(
         'ftdc_server.cpp',
         'ftdc_system_stats.cpp',
         'ftdc_system_stats_${TARGET_OS}.cpp',
+        env.Idlc('ftdc_server.idl')[0],
     ],
     LIBDEPS=[
         '$BUILD_DIR/mongo/base',

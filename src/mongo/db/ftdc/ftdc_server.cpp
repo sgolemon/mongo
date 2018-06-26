@@ -44,12 +44,12 @@
 #include "mongo/db/jsobj.h"
 #include "mongo/db/server_parameters.h"
 #include "mongo/db/service_context.h"
+#include "mongo/platform/atomic_word.h"
 #include "mongo/stdx/memory.h"
 
 namespace mongo {
 
 namespace {
-
 const auto getFTDCController = ServiceContext::declareDecoration<std::unique_ptr<FTDCController>>();
 
 FTDCController* getGlobalFTDCController() {
@@ -59,189 +59,93 @@ FTDCController* getGlobalFTDCController() {
 
     return getFTDCController(getGlobalServiceContext()).get();
 }
+}  // namespace
 
+namespace ftdc {
 AtomicBool localEnabledFlag(FTDCConfig::kEnabledDefault);
-
-class ExportedFTDCEnabledParameter
-    : public ExportedServerParameter<bool, ServerParameterType::kStartupAndRuntime> {
-public:
-    ExportedFTDCEnabledParameter()
-        : ExportedServerParameter<bool, ServerParameterType::kStartupAndRuntime>(
-              ServerParameterSet::getGlobal(),
-              "diagnosticDataCollectionEnabled",
-              &localEnabledFlag) {}
-
-    virtual Status validate(const bool& potentialNewValue) {
-        auto controller = getGlobalFTDCController();
-        if (controller) {
-            return controller->setEnabled(potentialNewValue);
-        }
-
-        return Status::OK();
+Status onUpdateFTDCEnabled(const bool& newValue) {
+    auto controller = getGlobalFTDCController();
+    if (controller) {
+        return controller->setEnabled(newValue);
     }
-
-} exportedFTDCEnabledParameter;
+    return Status::OK();
+}
 
 AtomicInt32 localPeriodMillis(FTDCConfig::kPeriodMillisDefault);
-
-class ExportedFTDCPeriodParameter
-    : public ExportedServerParameter<std::int32_t, ServerParameterType::kStartupAndRuntime> {
-public:
-    ExportedFTDCPeriodParameter()
-        : ExportedServerParameter<std::int32_t, ServerParameterType::kStartupAndRuntime>(
-              ServerParameterSet::getGlobal(),
-              "diagnosticDataCollectionPeriodMillis",
-              &localPeriodMillis) {}
-
-    virtual Status validate(const std::int32_t& potentialNewValue) {
-        if (potentialNewValue < 100) {
-            return Status(
-                ErrorCodes::BadValue,
-                "diagnosticDataCollectionPeriodMillis must be greater than or equal to 100ms");
-        }
-
-        auto controller = getGlobalFTDCController();
-        if (controller) {
-            controller->setPeriod(Milliseconds(potentialNewValue));
-        }
-
-        return Status::OK();
+Status onUpdateFTDCPeriodMillis(const std::int32_t& newValue) {
+    auto controller = getGlobalFTDCController();
+    if (controller) {
+        controller->setPeriod(Milliseconds(newValue));
     }
-
-} exportedFTDCPeriodParameter;
+    return Status::OK();
+}
 
 // Scale the values down since are defaults are in bytes, but the user interface is MB
 AtomicInt32 localMaxDirectorySizeMB(FTDCConfig::kMaxDirectorySizeBytesDefault / (1024 * 1024));
-
-AtomicInt32 localMaxFileSizeMB(FTDCConfig::kMaxFileSizeBytesDefault / (1024 * 1024));
-
-class ExportedFTDCDirectorySizeParameter
-    : public ExportedServerParameter<std::int32_t, ServerParameterType::kStartupAndRuntime> {
-public:
-    ExportedFTDCDirectorySizeParameter()
-        : ExportedServerParameter<std::int32_t, ServerParameterType::kStartupAndRuntime>(
-              ServerParameterSet::getGlobal(),
-              "diagnosticDataCollectionDirectorySizeMB",
-              &localMaxDirectorySizeMB) {}
-
-    virtual Status validate(const std::int32_t& potentialNewValue) {
-        if (potentialNewValue < 10) {
-            return Status(
-                ErrorCodes::BadValue,
-                "diagnosticDataCollectionDirectorySizeMB must be greater than or equal to 10");
-        }
-
-        if (potentialNewValue < localMaxFileSizeMB.load()) {
-            return Status(
-                ErrorCodes::BadValue,
+Status validateFTDCDirectorySizeMB(const std::int32_t& newValue) {
+    if (newValue < ftdc::localMaxFileSizeMB.load()) {
+        return {ErrorCodes::BadValue,
                 str::stream()
                     << "diagnosticDataCollectionDirectorySizeMB must be greater than or equal to '"
                     << localMaxFileSizeMB.load()
-                    << "' which is the current value of diagnosticDataCollectionFileSizeMB.");
-        }
-
-        auto controller = getGlobalFTDCController();
-        if (controller) {
-            controller->setMaxDirectorySizeBytes(potentialNewValue * 1024 * 1024);
-        }
-
-        return Status::OK();
+                    << "' which is the current value of diagnosticDataCollectionFileSizeMB."};
     }
 
-} exportedFTDCDirectorySizeParameter;
+    return Status::OK();
+}
+Status onUpdateFTDCDirectorySizeMB(const std::int32_t& newValue) {
+    auto controller = getGlobalFTDCController();
+    if (controller) {
+        controller->setMaxDirectorySizeBytes(newValue * 1024 * 1024);
+    }
 
-class ExportedFTDCFileSizeParameter
-    : public ExportedServerParameter<std::int32_t, ServerParameterType::kStartupAndRuntime> {
-public:
-    ExportedFTDCFileSizeParameter()
-        : ExportedServerParameter<std::int32_t, ServerParameterType::kStartupAndRuntime>(
-              ServerParameterSet::getGlobal(),
-              "diagnosticDataCollectionFileSizeMB",
-              &localMaxFileSizeMB) {}
+    return Status::OK();
+}
 
-    virtual Status validate(const std::int32_t& potentialNewValue) {
-        if (potentialNewValue < 1) {
-            return Status(ErrorCodes::BadValue,
-                          "diagnosticDataCollectionFileSizeMB must be greater than or equal to 1");
-        }
-
-        if (potentialNewValue > localMaxDirectorySizeMB.load()) {
-            return Status(
-                ErrorCodes::BadValue,
+AtomicInt32 localMaxFileSizeMB(FTDCConfig::kMaxFileSizeBytesDefault / (1024 * 1024));
+Status validateFTDCFileSizeMB(const std::int32_t& newValue) {
+    if (newValue > ftdc::localMaxDirectorySizeMB.load()) {
+        return {ErrorCodes::BadValue,
                 str::stream()
                     << "diagnosticDataCollectionFileSizeMB must be less than or equal to '"
                     << localMaxDirectorySizeMB.load()
-                    << "' which is the current value of diagnosticDataCollectionDirectorySizeMB.");
-        }
-
-        auto controller = getGlobalFTDCController();
-        if (controller) {
-            controller->setMaxFileSizeBytes(potentialNewValue * 1024 * 1024);
-        }
-
-        return Status::OK();
+                    << "' which is the current value of diagnosticDataCollectionDirectorySizeMB."};
     }
 
-} exportedFTDCFileSizeParameter;
+    return Status::OK();
+}
+Status onUpdateFTDCFileSizeMB(const std::int32_t& newValue) {
+    auto controller = getGlobalFTDCController();
+    if (controller) {
+        controller->setMaxFileSizeBytes(newValue * 1024 * 1024);
+    }
+
+    return Status::OK();
+}
 
 AtomicInt32 localMaxSamplesPerArchiveMetricChunk(
     FTDCConfig::kMaxSamplesPerArchiveMetricChunkDefault);
-
-class ExportedFTDCArchiveChunkSizeParameter
-    : public ExportedServerParameter<std::int32_t, ServerParameterType::kStartupAndRuntime> {
-public:
-    ExportedFTDCArchiveChunkSizeParameter()
-        : ExportedServerParameter<std::int32_t, ServerParameterType::kStartupAndRuntime>(
-              ServerParameterSet::getGlobal(),
-              "diagnosticDataCollectionSamplesPerChunk",
-              &localMaxSamplesPerArchiveMetricChunk) {}
-
-    virtual Status validate(const std::int32_t& potentialNewValue) {
-        if (potentialNewValue < 2) {
-            return Status(
-                ErrorCodes::BadValue,
-                "diagnosticDataCollectionSamplesPerChunk must be greater than or equal to 2");
-        }
-
-        auto controller = getGlobalFTDCController();
-        if (controller) {
-            controller->setMaxSamplesPerArchiveMetricChunk(potentialNewValue);
-        }
-
-        return Status::OK();
+Status onUpdateFTDCCollectionSamplesPerCount(const std::int32_t& newValue) {
+    auto controller = getGlobalFTDCController();
+    if (controller) {
+        controller->setMaxSamplesPerArchiveMetricChunk(newValue);
     }
 
-} exportedFTDCArchiveChunkSizeParameter;
+    return Status::OK();
+}
 
 AtomicInt32 localMaxSamplesPerInterimMetricChunk(
     FTDCConfig::kMaxSamplesPerInterimMetricChunkDefault);
-
-class ExportedFTDCInterimChunkSizeParameter
-    : public ExportedServerParameter<std::int32_t, ServerParameterType::kStartupAndRuntime> {
-public:
-    ExportedFTDCInterimChunkSizeParameter()
-        : ExportedServerParameter<std::int32_t, ServerParameterType::kStartupAndRuntime>(
-              ServerParameterSet::getGlobal(),
-              "diagnosticDataCollectionSamplesPerInterimUpdate",
-              &localMaxSamplesPerInterimMetricChunk) {}
-
-    virtual Status validate(const std::int32_t& potentialNewValue) {
-        if (potentialNewValue < 2) {
-            return Status(ErrorCodes::BadValue,
-                          "diagnosticDataCollectionSamplesPerInterimUpdate must be greater than or "
-                          "equal to 2");
-        }
-
-        auto controller = getGlobalFTDCController();
-        if (controller) {
-            controller->setMaxSamplesPerInterimMetricChunk(potentialNewValue);
-        }
-
-        return Status::OK();
+Status onUpdateFTDCSamplesPerInterimUpdate(const std::int32_t& newValue) {
+    auto controller = getGlobalFTDCController();
+    if (controller) {
+        controller->setMaxSamplesPerInterimMetricChunk(newValue);
     }
 
-} exportedFTDCInterimChunkSizeParameter;
-}  // namespace
+    return Status::OK();
+}
+
+}  // namespace ftdc
 
 FTDCSimpleInternalCommandCollector::FTDCSimpleInternalCommandCollector(StringData command,
                                                                        StringData name,
@@ -269,15 +173,16 @@ void startFTDC(boost::filesystem::path& path,
                FTDCStartMode startupMode,
                RegisterCollectorsFunction registerCollectors) {
     FTDCConfig config;
-    config.period = Milliseconds(localPeriodMillis.load());
+    config.period = Milliseconds(ftdc::localPeriodMillis.load());
     // Only enable FTDC if our caller says to enable FTDC, MongoS may not have a valid path to write
     // files to so update the diagnosticDataCollectionEnabled set parameter to reflect that.
-    localEnabledFlag.store(startupMode == FTDCStartMode::kStart && localEnabledFlag.load());
-    config.enabled = localEnabledFlag.load();
-    config.maxFileSizeBytes = localMaxFileSizeMB.load() * 1024 * 1024;
-    config.maxDirectorySizeBytes = localMaxDirectorySizeMB.load() * 1024 * 1024;
-    config.maxSamplesPerArchiveMetricChunk = localMaxSamplesPerArchiveMetricChunk.load();
-    config.maxSamplesPerInterimMetricChunk = localMaxSamplesPerInterimMetricChunk.load();
+    ftdc::localEnabledFlag.store(startupMode == FTDCStartMode::kStart &&
+                                 ftdc::localEnabledFlag.load());
+    config.enabled = ftdc::localEnabledFlag.load();
+    config.maxFileSizeBytes = ftdc::localMaxFileSizeMB.load() * 1024 * 1024;
+    config.maxDirectorySizeBytes = ftdc::localMaxDirectorySizeMB.load() * 1024 * 1024;
+    config.maxSamplesPerArchiveMetricChunk = ftdc::localMaxSamplesPerArchiveMetricChunk.load();
+    config.maxSamplesPerInterimMetricChunk = ftdc::localMaxSamplesPerInterimMetricChunk.load();
 
     auto controller = stdx::make_unique<FTDCController>(path, config);
 

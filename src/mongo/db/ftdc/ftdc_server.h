@@ -96,4 +96,27 @@ private:
     const OpMsgRequest _request;
 };
 
+// Accessors for ServerParameters.
+namespace ftdc {
+extern AtomicBool localEnabledFlag;
+Status onUpdateFTDCEnabled(const bool&);
+
+extern AtomicInt32 localPeriodMillis;
+Status onUpdateFTDCPeriodMillis(const std::int32_t&);
+
+extern AtomicInt32 localMaxDirectorySizeMB;
+Status validateFTDCDirectorySizeMB(const std::int32_t&);
+Status onUpdateFTDCDirectorySizeMB(const std::int32_t&);
+
+extern AtomicInt32 localMaxFileSizeMB;
+Status validateFTDCFileSizeMB(const std::int32_t&);
+Status onUpdateFTDCFileSizeMB(const std::int32_t&);
+
+extern AtomicInt32 localMaxSamplesPerArchiveMetricChunk;
+Status onUpdateFTDCCollectionSamplesPerCount(const std::int32_t&);
+
+extern AtomicInt32 localMaxSamplesPerInterimMetricChunk;
+Status onUpdateFTDCSamplesPerInterimUpdate(const std::int32_t&);
+}  // namespace ftdc
+
 }  // namespace mongo
