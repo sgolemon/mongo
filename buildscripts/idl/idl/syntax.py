@@ -55,6 +55,7 @@ class IDLSpec(object):
         self.globals = None  # type: Optional[Global]
         self.imports = None  # type: Optional[Import]
         self.setParameters = []  # type: List[SetParameter]
+        self.configs = []  # type: List[ConfigOption]
 
 def parse_array_type(name):
     # type: (unicode) -> unicode
@@ -416,6 +417,53 @@ class Enum(common.SourceLocation):
         self.cpp_namespace = None  # type: unicode
 
         super(Enum, self).__init__(file_name, line, column)
+
+class ConfigValidator(common.SourceLocation):
+    """
+    Validator options for config settings.
+    """
+
+    def __init__(self, file_name, line, column):
+        # type: (unicode, int, int) -> None
+        """Construct a ConfigValidator."""
+        self.gte = None  # type: int
+        self.lte = None  # type: int
+        self.regex = None  # type: unicode
+        self.regexHelp = None  # type: unicode
+        # TODO: Callback? Constraints? gte/lte floats?
+
+        super(ConfigValidator, self).__init__(file_name, line, column)
+ 
+class ConfigOption(common.SourceLocation):
+    """
+    IDL Configuration setting information.
+    """
+
+    def __init__(self, file_name, line, column):
+        # type: (unicode, int, int) -> None
+        """Construct a Configuration setting."""
+        self.name = None  # type: unicode
+        self.type = None  # type: unicode
+        self.section = []  # type: List[unicode]
+        self.description = None  # type: unicode
+        self.shortName = None  # type: unicode
+        self.deprecatedName = []  # type: List[unicode]
+        self.deprecatedShortName = []  #type: List[unicode]
+
+        self.incompatibleWith = []  # type: List[unicode]
+        self.requires = []  # type: List[unicode]
+        self.hidden = False  # type: bool
+        self.default = None  # type: unicode
+        self.implicit = None  # type: unicode
+        self.composing = False  # type: bool
+        self.source = []  # type: List[unicode]
+        self.positionalStart = None  # type: int
+        self.positionalEnd = None  # type: int
+
+        self.cppStorage = None  # type: unicode
+        self.validator = None  # type: ConfigValidator
+
+        super(ConfigOption, self).__init__(file_name, line, column)
 
 class Validator(common.SourceLocation):
     """

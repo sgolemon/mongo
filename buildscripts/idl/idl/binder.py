@@ -833,6 +833,66 @@ def _bind_setParameter(ctxt, parsed_spec, param):
 
     return astParam
 
+def _bind_config(ctxt, parsed_spec, config):
+    # type: (errors.ParserContext, syntax.IDLSpec, syntax.ConfigOption) -> ast.ConfigOption
+    """
+    Bind a configuration option setting.
+    """
+
+    astConfig = ast.ConfigOption(config.file_name, config.line, config.column)
+    astConfig.name = config.name
+    astConfig.type = config.type
+    astConfig.shortName = config.shortName
+    astConfig.deprecatedName = config.deprecatedName
+    astConfig.deprecatedShortName = config.deprecatedShortName
+    astConfig.description = config.description
+    if (config.section is None) or (len(config.section) == 0):
+        ctxt.add_missing_section_field(config)
+    astConfig.section = config.section
+
+    astConfig.incompatibleWith = config.incompatibleWith
+    astConfig.requires = config.requires
+    astConfig.hidden = config.hidden
+    astConfig.default = config.default
+    astConfig.implicit = config.implicit
+    astConfig.composing = config.composing
+
+    if (config.positionalEnd is not None) and (config.positionalStart is None):
+        ctxt.add_positional_end_without_start(config, config.positionalEnd)
+    if (config.positionalEnd is not None) and (config.positionalStart is not None) and (config.positionalStart > config.positionalEnd):
+        ctxt.add_positional_end_before_start(config, config.positionalStart, config.positionalEnd)
+    astConfig.positionalStart = config.positionalStart
+    astConfig.positionalEnd = config.positionalEnd
+
+    astConfig.cppStorage = config.cppStorage
+
+    if config.validator is not None:
+        astConfig.validator = ast.ConfigValidator(config.file_name, config.line, config.column)
+        astConfig.validator.lte = config.validator.lte
+        astConfig.validator.gte = config.validator.gte
+
+        if (config.validator.regex is None) and (config.validator.regexHelp is not None):
+            ctxt.add_regex_help_without_regex(config.validator, config.validator.regexHelp)
+        astConfig.validator.regex = config.validator.regex
+        astConfig.validator.regexHelp = config.validator.regexHelp or config.validator.regex
+
+    if (config.source is None) or (len(config.source) == 0):
+        astConfig.source = 'YAMLConfig' if (config.shortName is None) else 'YAMLCLI'
+    else:
+        source = 0
+        for src in config.source:
+            if src.lower() == 'cli':
+                source |= 1
+            elif src.lower() == 'ini':
+                source |= 2
+            elif src.lower() == 'yaml':
+                source |= 4
+            else:
+                ctxt.add_invalid_config_source(config, src)
+        astConfig.source = [None, 'CommandLine', 'INIConfig', 'AllLegacy',
+                            'YAMLConfig', 'YAMLCLI', 'AllConfig', 'All'][source]
+
+    return astConfig
 
 def bind(parsed_spec):
     # type: (syntax.IDLSpec) -> ast.IDLBoundSpec
@@ -861,6 +921,9 @@ def bind(parsed_spec):
 
     for setParameter in parsed_spec.setParameters:
         bound_spec.setParameters.append(_bind_setParameter(ctxt, parsed_spec, setParameter))
+
+    for config in parsed_spec.configs:
+        bound_spec.configs.append(_bind_config(ctxt, parsed_spec, config))
 
     if ctxt.errors.has_errors():
         return ast.IDLBoundSpec(None, ctxt.errors)

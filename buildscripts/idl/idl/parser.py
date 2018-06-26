@@ -516,6 +516,52 @@ def _parse_setParameter(ctxt, spec, name, node):
 
     spec.setParameters.append(param)
 
+def _parse_configValidator(ctxt, node):
+    # type: (errors.ParserContext, str, yaml.nodes.MappingNode) -> syntax.ConfigValidator
+    """Parse a validator section in a configs struct in the IDL file."""
+    validator = syntax.ConfigValidator(ctxt.file_name, node.start_mark.line, node.start_mark.column)
+
+    _generic_parser(
+        ctxt, node, "validator", validator, {
+            "gte": _RuleDesc('int_scalar'),
+            "lte": _RuleDesc('int_scalar'),
+            "regex": _RuleDesc('scalar'),
+            "regexHelp": _RuleDesc('scalar'),
+        })
+
+    return validator
+
+def _parse_config(ctxt, spec, name, node):
+    # type: (errors.ParserContext, syntax.IDLSpec, unicode, Union[yaml.nodes.MappingNode, yaml.nodes.ScalarNode, yaml.nodes.SequenceNode]) -> None
+    """Parse a configs section in the IDL file."""
+    if not ctxt.is_mapping_node(node, "configs"):
+        return
+
+    config = syntax.ConfigOption(ctxt.file_name, node.start_mark.line, node.start_mark.column)
+    config.name = name
+
+    _generic_parser(
+        ctxt, node, "configs", config, {
+            "type": _RuleDesc('scalar', _RuleDesc.REQUIRED),
+            "shortName": _RuleDesc('scalar'),
+            "deprecatedName": _RuleDesc('scalar_or_sequence'),
+            "deprecatedShortName": _RuleDesc('scalar_or_sequence'),
+            "section": _RuleDesc('scalar_or_sequence', _RuleDesc.REQUIRED),
+            "description": _RuleDesc('scalar'),
+            "incompatibleWith": _RuleDesc('scalar_or_sequence'),
+            "requires": _RuleDesc('scalar_or_sequence'),
+            "hidden": _RuleDesc('bool_scalar'),
+            "default": _RuleDesc('scalar'),
+            "implciit": _RuleDesc('scalar'),
+            "composing": _RuleDesc('bool_scalar'),
+            "source": _RuleDesc('scalar_or_sequence'),
+            "positionalStart": _RuleDesc('int_scalar'),
+            "positionalEnd": _RuleDesc('int_scalar'),
+            "cppStorage": _RuleDesc('scalar'),
+            "validator": _RuleDesc('mapping', mapping_parser_func=_parse_configValidator),
+        })
+
+    spec.configs.append(config)
 
 def _prefix_with_namespace(cpp_namespace, cpp_name):
     # type: (unicode, unicode) -> unicode
@@ -597,6 +643,8 @@ def _parse(stream, error_file_name):
             _parse_mapping(ctxt, spec, second_node, 'commands', _parse_command)
         elif first_name == "setParameters":
             _parse_mapping(ctxt, spec, second_node, 'setParameters', _parse_setParameter)
+        elif first_name == "configs":
+            _parse_mapping(ctxt, spec, second_node, 'configs', _parse_config)
         else:
             ctxt.add_unknown_root_node_error(first_node)
 

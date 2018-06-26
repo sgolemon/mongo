@@ -20,6 +20,7 @@ from __future__ import absolute_import, print_function, unicode_literals
 from abc import ABCMeta, abstractmethod
 import io
 import os
+import random
 import string
 import sys
 import textwrap
@@ -288,6 +289,9 @@ def _get_field_usage_checker(indented_writer, struct):
 # Add backslahes to select reserved characters in a string to make them C++ safe.
 def _escapeString(s):
     # type: (unicode) -> unicode
+    if s is None:
+        return ''
+
     for i in ["\\", '"', "'"]:
         if i in s:
             s = s.replace(i, '\\'+i)
@@ -1550,6 +1554,58 @@ class _CppSourceFileWriter(_CppFileWriterBase):
 
             self._writer.write_line('return ret;')
 
+    def gen_configs(self, configs):
+        # type: (List[ast.ConfigOption]) -> None
+        """Generate registration and extraction initializers."""
+        blockname = ''.join(random.choice(string.ascii_letters + string.digits + '_') for _ in range(32))
+        register = 'MONGO_MODULE_STARTUP_OPTIONS_REGISTER(idlConfig_%s_register)(InitializerContext* context) {' % (blockname)
+        with self._block(register, '}'):
+            for config in configs:
+                with self._block('(&moe::startupOptions)', ';'):
+                    for section in config.section:
+                        self._writer.write_line('->getSection("%s")' % (_escapeString(section)))
+                    self._writer.write_line(common.template_args(
+                        '->addOptionChaining("${dotted}", "${short}", moe::${type}, "${desc}", std::vector<std::string>{${deprDotted}})',
+                        dotted=_escapeString(config.name),
+                        short=_escapeString(config.shortName),
+                        type=config.type,
+                        desc=_escapeString(config.description),
+                        deprDotted=(','.join([('"'+_escapeString(x)+'"') for x in config.deprecatedName])),
+                        # TODO: Deprecated short names
+                        ))
+                    self._writer.write_line('.setSources(moe::Source%s)' % config.source)
+
+                    for inc in config.incompatibleWith:
+                        self._writer.write_line('.incompatibleWith("%s")' % (_escapeString(inc)))
+                    for req in config.requires:
+                        self._writer.write_line('.requires("%s")' % (_escapeString(req)))
+                    if config.hidden is True:
+                        self._writer.write_line('.hidden()')
+                    if config.composing is True:
+                        self._writer.write_line('.composing()')
+
+                    # TODO: default, implicit, positional, validators
+
+            self._writer.write_line('return Status::OK();')
+
+        self.write_empty_line()
+
+        storage_opts = [x for x in configs if x.cppStorage is not None]
+        if len(storage_opts) > 0:
+            store = 'MONGO_STARTUP_OPTIONS_STORE(idlConfig_%s_store)(InitializerContext* context) {' % (blockname)
+            with self._block(store, '}'):
+                for config in storage_opts:
+                    varname = 'moe::startupOptionsParsed["%s"]' % (_escapeString(config.name))
+                    with self._block('if (%s.count() > 0) {' % varname, '}'):
+                        self._writer.write_line(common.template_args(
+                            '${storage} = ${varname}.as<decltype(${storage})>();',
+                            storage=config.cppStorage,
+                            varname=varname))
+
+                self._writer.write_line('return Status::OK();')
+
+        self.write_empty_line()
+
     def generate(self, spec, header_file_name):
         # type: (ast.IDLAST, unicode) -> None
         """Generate the C++ header to a stream."""
@@ -1584,6 +1640,12 @@ class _CppSourceFileWriter(_CppFileWriterBase):
         if len(spec.setParameters) > 0:
             header_list.append('mongo/util/predicates.h')
             header_list.append('mongo/db/server_parameters.h')
+
+        if len(spec.configs) > 0:
+            header_list.append('mongo/util/options_parser/option_description.h')
+            header_list.append('mongo/util/options_parser/option_section.h')
+            header_list.append('mongo/util/options_parser/startup_option_init.h')
+            header_list.append('mongo/util/options_parser/startup_options.h')
 
         header_list.sort()
 
@@ -1635,6 +1697,10 @@ class _CppSourceFileWriter(_CppFileWriterBase):
                 with self.gen_namespace_block(''):
                     for (param_no, param) in enumerate(spec.setParameters):
                         self.gen_setParameter(param_no, param)
+
+            if len(spec.configs) > 0:
+                with self.gen_namespace_block(''):
+                    self.gen_configs(spec.configs)
 
 def generate_header_str(spec):
     # type: (ast.IDLAST) -> unicode
