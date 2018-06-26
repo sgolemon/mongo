@@ -1,0 +1,56 @@
+# Copyright (C) 2018 MongoDB Inc.
+#
+# This program is free software: you can redistribute it and/or  modify
+# it under the terms of the GNU Affero General Public License, version 3,
+# as published by the Free Software Foundation.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+#
+
+global:
+  cpp_namespace: "mongo"
+  cpp_includes:
+    - "mongo/db/auth/sasl_options.h"
+
+imports:
+  - "mongo/idl/basic_types.idl"
+
+setParameters:
+  authenticationMechanisms:
+    description: "Enabled authentication mechanisms"
+    cppStorage: "saslGlobalParams.authenticationMechanisms"
+    setAt: startup
+  saslHostName:
+    description: "SASL host name"
+    cppStorage: "saslGlobalParams.hostName"
+    setAt: startup
+  saslServiceName:
+    description: "SASL service name"
+    cppStorage: "saslGlobalParams.serviceName"
+    setAt: startup
+  saslauthdPath:
+    description: "SASL authd path"
+    cppStorage: "saslGlobalParams.authdPath"
+    setAt: startup
+
+  # For backward compatability purposes, "scramIterationCount" refers to the SHA-1 variant.
+  # The SHA-256 variant, as well as all future parameters, will use their specific name.
+  scramIterationCount:
+    description: "Iteration count to use when creating new users with SCRAM-SHA-1 credentials"
+    cppStorage: "saslGlobalParams.scramSHA1IterationCount"
+    setAt: [ startup, runtime ]
+    validator:
+      gte: 5000
+  scramSHA256IterationCount:
+    description: "Iteration count to use when creating new users with SCRAM-SHA-256 credentials"
+    cppStorage: "saslGlobalParams.scramSHA256IterationCount"
+    setAt: [ startup, runtime ]
+    validator:
+      gte: 5000
+
