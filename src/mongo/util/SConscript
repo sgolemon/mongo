@@ -263,6 +263,20 @@ env.Library(
 )
 
 env.Library(
+    target='enum',
+    source=[
+        'enum.cpp',
+        env.Idlc('enum.idl')[0],
+    ],
+    LIBDEPS=[
+        '$BUILD_DIR/mongo/base',
+    ],
+    LIBDEPS_PRIVATE=[
+        '$BUILD_DIR/mongo/util/options_parser/options_parser',
+    ],
+)
+
+env.Library(
     target='clock_sources',
     source=[
         'background_thread_clock_source.cpp',

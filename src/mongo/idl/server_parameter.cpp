@@ -31,6 +31,7 @@
 
 #include "mongo/idl/server_parameter.h"
 
+#include "mongo/util/enum.h"
 #include "mongo/util/log.h"
 
 namespace mongo {
@@ -70,6 +71,24 @@ ServerParameter::ServerParameter(ServerParameterSet* sps, StringData name)
 
 namespace {
 ServerParameterSet* gGlobalServerParameterSet = nullptr;
+
+class SetParameterEnumerator : public Enumerator {
+public:
+    SetParameterEnumerator() : Enumerator("setParameter") {}
+
+    BSONObj getEnumeration() final {
+        BSONObjBuilder b;
+
+        for (const auto it : gGlobalServerParameterSet->getMap()) {
+            const auto* sp = it.second;
+            b.append(it.first, BSON("startup" << sp->allowedToChangeAtStartup() <<
+                                    "runtime" << sp->allowedToChangeAtRuntime() <<
+                                    "test-only" << sp->isTestOnly()));
+        }
+
+        return b.obj();
+    }
+} setParameterEnumerator;
 }  // namespace
 
 ServerParameterSet* ServerParameterSet::getGlobal() {
