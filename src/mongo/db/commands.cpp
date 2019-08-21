@@ -35,6 +35,7 @@
 
 #include <string>
 #include <vector>
+#include <boost/algorithm/string.hpp>
 
 #include "mongo/bson/mutable/algorithm.h"
 #include "mongo/bson/mutable/document.h"
@@ -58,6 +59,7 @@
 #include "mongo/rpc/protocol.h"
 #include "mongo/rpc/write_concern_error_detail.h"
 #include "mongo/s/stale_exception.h"
+#include "mongo/util/enum.h"
 #include "mongo/util/fail_point_service.h"
 #include "mongo/util/invariant.h"
 #include "mongo/util/log.h"
@@ -743,5 +745,59 @@ CommandRegistry* globalCommandRegistry() {
     static auto reg = new CommandRegistry();
     return reg;
 }
+
+namespace {
+class CommandsEnumerator : public Enumerator {
+public:
+    CommandsEnumerator() : Enumerator("command") {}
+
+    void enumerate(std::ostream& os) final {
+        const auto& commands = globalCommandRegistry()->allCommands();
+
+        std::map<std::string, Command*> sortedCommands;
+        for (const auto cmdIt : commands) {
+            sortedCommands[cmdIt.first] = cmdIt.second;
+        }
+
+        for (const auto cmdIt : sortedCommands) {
+            const auto* cmd = cmdIt.second;
+            os << cmd->getName() << "\t'" << trimHelp(cmd->help()) << "'";
+
+            if (cmd->adminOnly()) {
+                os << "\tadmin-only";
+            }
+
+            if (cmd->localHostOnlyIfNoAuth()) {
+                os << "\tlocalHostOnlyIfNoAuth()";
+            }
+
+            if (!cmd->requiresAuth()) {
+                os << "\tAuthNotRequired";
+            }
+
+            auto sensitiveField = cmd->sensitiveFieldName();
+            if (!sensitiveField.empty()) {
+                os << "\tsensitive-field='" << sensitiveField.toString() << "'";
+            }
+
+            os << std::endl;
+        }
+    }
+
+private:
+    // Truncate helptext to arbitrary length and remove CR/NL.
+    static constexpr size_t kMaxHelpLen = 30;
+    static std::string trimHelp(StringData help) {
+        auto ret = help.substr(0, kMaxHelpLen).toString();
+        if (help.size() > kMaxHelpLen) {
+            ret.append("...");
+        }
+        boost::replace_all(ret, "\r", " ");
+        boost::replace_all(ret, "\n", " ");
+        return ret;
+    }
+} commandsEnumerator;
+
+}  // namespace
 
 }  // namespace mongo
