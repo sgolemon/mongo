@@ -29,6 +29,8 @@
 
 #include "mongo/platform/basic.h"
 
+#include <ostream>
+
 #include "mongo/base/string_data.h"
 #include "mongo/bson/bsonobj.h"
 
@@ -38,7 +40,7 @@ class Enumerator {
 public:
     Enumerator(StringData name);
 
-    virtual BSONObj getEnumeration() = 0;
+    virtual void enumerate(std::ostream& os) = 0;
 };
 
 }  // namespace mongo

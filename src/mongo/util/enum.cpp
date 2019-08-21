@@ -48,12 +48,10 @@ class ListEnumerators : public Enumerator {
 public:
     ListEnumerators() : Enumerator("list") {}
 
-    BSONObj getEnumeration() final {
-        BSONArrayBuilder b;
+    void enumerate(std::ostream& os) final {
         for (const auto it : enumerators) {
-            b.append(it.first);
+            os << it.first << std::endl;
         }
-        return b.arr();
     }
 } listEnumerators;
 
@@ -69,8 +67,7 @@ MONGO_STARTUP_OPTIONS_POST(Enum)(InitializerContext*) {
             quickExit(1);
         }
 
-        auto data = it->second->getEnumeration();
-        std::cout << data.jsonString(JsonStringFormat::Strict, 1, data.couldBeArray()) << std::endl;
+        it->second->enumerate(std::cout);
         quickExit(0);
     }
 

@@ -76,17 +76,21 @@ class SetParameterEnumerator : public Enumerator {
 public:
     SetParameterEnumerator() : Enumerator("setParameter") {}
 
-    BSONObj getEnumeration() final {
-        BSONObjBuilder b;
-
+    void enumerate(std::ostream& os) final {
         for (const auto it : gGlobalServerParameterSet->getMap()) {
             const auto* sp = it.second;
-            b.append(it.first, BSON("startup" << sp->allowedToChangeAtStartup() <<
-                                    "runtime" << sp->allowedToChangeAtRuntime() <<
-                                    "test-only" << sp->isTestOnly()));
+            os << it.first;
+            if (sp->allowedToChangeAtStartup()) {
+                os << "\tstartup";
+            }
+            if (sp->allowedToChangeAtRuntime()) {
+                os << "\truntime";
+            }
+            if (sp->isTestOnly()) {
+                os << "\ttest-only";
+            }
+            os << std::endl;
         }
-
-        return b.obj();
     }
 } setParameterEnumerator;
 }  // namespace
